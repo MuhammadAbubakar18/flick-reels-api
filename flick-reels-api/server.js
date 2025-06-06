@@ -1,92 +1,55 @@
 const express = require('express');
 const multer = require('multer');
+const cors = require('cors');
+const Replicate = require('replicate');
 const fs = require('fs');
 const path = require('path');
-const cors = require('cors');
-const fetch = require('node-fetch');
 require('dotenv').config();
 
 const app = express();
-const port = process.env.PORT || 10000;
-const upload = multer({ dest: 'uploads/' });
+const PORT = process.env.PORT || 10000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// 🔁 Step 1: Upload to AssemblyAI
-app.post('/upload', upload.single('audio'), async (req, res) => {
-  const filePath = req.file.path;
-  const fileStream = fs.createReadStream(filePath);
-
-  const response = await fetch('https://api.assemblyai.com/v2/upload', {
-    method: 'POST',
-    headers: {
-      authorization: process.env.ASSEMBLY_API_KEY,
-    },
-    body: fileStream,
-  });
-
-  const data = await response.json();
-  fs.unlinkSync(filePath); // clean up
-
-  res.json({ upload_url: data.upload_url });
+// Replicate instance
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN, // <-- Set this in Render's "Environment" tab
 });
 
-// 🧠 Step 2: Start Transcription with Enhanced Model
-app.post('/transcribe', async (req, res) => {
-  const { audio_url } = req.body;
+// Multer setup for file uploads
+const upload = multer({ dest: 'uploads/' });
 
-  const response = await fetch('https://api.assemblyai.com/v2/transcript', {
-    method: 'POST',
-    headers: {
-      authorization: process.env.ASSEMBLY_API_KEY,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      audio_url,
-      speaker_labels: true,
-      dual_channel: true,
-      word_boost: ['welcome', 'video', 'editor', 'AI'],
-      model: 'enhanced',
-      punctuate: true,
-      format_text: true,
-    }),
-  });
+// Route: Whisper subtitle generation using Replicate
+app.post('/whisper', upload.single('audio'), async (req, res) => {
+  try {
+    const audioPath = path.resolve(__dirname, req.file.path);
 
-  const data = await response.json();
-  res.json({ transcript_id: data.id });
-});
+    const output = await replicate.run(
+      "openai/whisper", {
+        input: {
+          audio: fs.createReadStream(audioPath),
+          language: "en",
+          output_format: "srt"
+        }
+      }
+    );
 
-// 🔄 Step 3: Poll for Transcription Result
-app.get('/transcription/:id', async (req, res) => {
-  const { id } = req.params;
-
-  const response = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
-    method: 'GET',
-    headers: {
-      authorization: process.env.ASSEMBLY_API_KEY,
-    },
-  });
-
-  const data = await response.json();
-
-  if (data.status === 'completed') {
-    const wordSubtitles = data.words.map((w) => ({
-      start: w.start,
-      end: w.end,
-      text: w.text,
-    }));
-    res.json({ status: 'completed', words: wordSubtitles });
-  } else {
-    res.json({ status: data.status });
+    fs.unlinkSync(audioPath); // Clean up uploaded file
+    res.json({ subtitles: output }); // Return SRT content as string
+  } catch (error) {
+    console.error("❌ Whisper API error:", error);
+    res.status(500).json({ error: "Whisper transcription failed." });
   }
 });
 
-// ✅ Test Endpoint
+// Default route
 app.get('/', (req, res) => {
-  res.send('Server running on port ' + port);
+  res.send('Whisper API server is running ✅');
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
