@@ -1,112 +1,90 @@
 const express = require('express');
 const multer = require('multer');
-const axios = require('axios');
 const cors = require('cors');
+const axios = require('axios');
 const fs = require('fs');
+const path = require('path');
 const FormData = require('form-data');
-require('dotenv').config();
 
+require('dotenv').config();
 const app = express();
-const upload = multer({ dest: 'uploads/' });
+const PORT = process.env.PORT || 10000;
+
 app.use(cors());
 app.use(express.json());
 
-const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
+const upload = multer({ dest: 'uploads/' });
 
-app.get('/', (_, res) => {
-  res.send('Server running on port 10000');
-});
-
-// 1. Upload route
 app.post('/upload', upload.single('audio'), async (req, res) => {
-  const filePath = req.file.path;
-
   try {
-    const fileData = fs.readFileSync(filePath);
-    const form = new FormData();
-    form.append('file', fileData, {
-      filename: req.file.originalname,
-    });
+    const audioPath = req.file.path;
 
-    const response = await axios.post('https://api.replicate.com/v1/files', form, {
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(audioPath));
+
+    const uploadRes = await axios.post('https://api.replicate.com/v1/files', formData, {
       headers: {
-        ...form.getHeaders(),
-        Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
+        ...formData.getHeaders(),
+        Authorization: `Token ${process.env.REPLICATE_API_TOKEN}`,
       },
     });
 
-    fs.unlinkSync(filePath); // cleanup
-    res.json({ upload_url: response.data.url });
+    fs.unlinkSync(audioPath); // clean up
+
+    res.json({ upload_url: uploadRes.data.url });
   } catch (error) {
     console.error('Upload error:', error.message);
     res.status(500).json({ error: 'Upload failed' });
   }
 });
 
-// 2. Transcribe route
 app.post('/transcribe', async (req, res) => {
-  const audioUrl = req.body.audio_url;
+  const { audio_url } = req.body;
 
   try {
-    const replicateResponse = await axios.post(
+    const response = await axios.post(
       'https://api.replicate.com/v1/predictions',
       {
-        version: "d2675f1c10e17fd9c1c4fa994f3471463b2c1cb74c489eac72ed7ba817ef760d", // whisper
+        version: 'a082c5025c62c8db845de5d1c74a1237c6c63a6e98ae51c88e1fc2b5aefc4fad',
         input: {
-          audio: audioUrl,
-          output_format: "json" // structured output
+          audio: audio_url,
+          task: 'transcribe',
+          output_format: 'json',
         },
       },
       {
         headers: {
-          Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
+          Authorization: `Token ${process.env.REPLICATE_API_TOKEN}`,
           'Content-Type': 'application/json',
         },
       }
     );
 
-    const prediction = replicateResponse.data;
-    res.json({ prediction_id: prediction.id });
-  } catch (error) {
-    console.error('Transcription start error:', error.message);
-    res.status(500).json({ error: 'Transcription request failed' });
-  }
-});
+    const predictionId = response.data.id;
 
-// 3. Polling
-app.get('/transcription/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const response = await axios.get(`https://api.replicate.com/v1/predictions/${id}`, {
-      headers: {
-        Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
-      },
+    let result;
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const poll = await axios.get(`https://api.replicate.com/v1/predictions/${predictionId}`, {
+        headers: { Authorization: `Token ${process.env.REPLICATE_API_TOKEN}` },
+      });
+
+      if (poll.data.status === 'succeeded') {
+        result = poll.data.output;
+        break;
+      } else if (poll.data.status === 'failed') {
+        throw new Error('Transcription failed');
+      }
+    }
+
+    res.json({
+      status: 'completed',
+      segments: result.segments,
     });
-
-    const prediction = response.data;
-    if (prediction.status === 'succeeded') {
-      const transcript = prediction.output;
-      const words = transcript.map((entry, index) => ({
-        start: Math.floor(entry.start * 1000),
-        end: Math.floor(entry.end * 1000),
-        text: entry.text.trim(),
-        index,
-      }));
-      return res.json({ status: 'completed', words });
-    }
-
-    if (prediction.status === 'failed') {
-      return res.json({ status: 'error' });
-    }
-
-    res.json({ status: prediction.status });
-  } catch (e) {
-    console.error('Polling error:', e.message);
-    res.status(500).json({ error: 'Polling failed' });
+  } catch (err) {
+    console.error('Transcription error:', err.message);
+    res.status(500).json({ status: 'error', error: err.message });
   }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ Whisper API server running on port ${PORT}`));
