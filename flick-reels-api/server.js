@@ -1,89 +1,111 @@
-// server.js - Whisper Subtitle Generator using Replicate
-
 const express = require("express");
 const multer = require("multer");
-const cors = require("cors");
-const axios = require("axios");
 const fs = require("fs");
-const FormData = require("form-data");
-require("dotenv").config();
+const axios = require("axios");
+const cors = require("cors");
+const path = require("path");
 
 const app = express();
-const port = process.env.PORT || 10000;
-
 app.use(cors());
 app.use(express.json());
 
 const upload = multer({ dest: "uploads/" });
 
-// POST /upload -> Upload video and return local path
-app.post("/upload", upload.single("audio"), (req, res) => {
-  const filePath = req.file.path;
-  res.json({ upload_url: filePath });
+const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN; // already added in Render
+
+// --- 1. Upload Endpoint ---
+app.post("/upload", upload.single("audio"), async (req, res) => {
+  try {
+    const filePath = req.file.path;
+
+    // Upload file to Replicate via their CDN
+    const fileData = fs.readFileSync(filePath);
+    const uploadRes = await axios.post(
+      "https://dreambooth-api-experimental.replicate.com/v1/upload",
+      fileData,
+      {
+        headers: {
+          Authorization: `Token ${REPLICATE_API_TOKEN}`,
+          "Content-Type": "application/octet-stream",
+        },
+        params: {
+          filename: req.file.originalname,
+        },
+      }
+    );
+
+    fs.unlinkSync(filePath); // Delete local file
+    return res.json({ upload_url: uploadRes.data.upload_url });
+  } catch (err) {
+    console.error("Upload Error:", err.message);
+    return res.status(500).json({ error: "Failed to upload file" });
+  }
 });
 
-// POST /transcribe -> Call Replicate Whisper API
+// --- 2. Transcribe Endpoint ---
 app.post("/transcribe", async (req, res) => {
   const { audio_url } = req.body;
 
   try {
-    const form = new FormData();
-    form.append("file", fs.createReadStream(audio_url));
-
-    const prediction = await axios.post(
+    const response = await axios.post(
       "https://api.replicate.com/v1/predictions",
       {
-        version: "b89ef4f70c63532aaf0b74d07c6c735434b6e6db375774fb074d3dfcbdd9eb3d", // villesau/whisper-timestamped
+        version: "d2e072d33b6094b3e13e5c99f15c8f2b168740b87acb9b3fdfb7c2c347d6c7b0", // Whisper model
         input: {
-          audio: form.getBuffer().toString("base64"),
-          output_format: "words_only"
-        }
+          audio: audio_url,
+          task: "transcribe",
+        },
       },
       {
         headers: {
-          Authorization: `Token ${process.env.REPLICATE_API_KEY}`,
-          "Content-Type": "application/json"
-        }
+          Authorization: `Token ${REPLICATE_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
       }
     );
 
-    const predictionId = prediction.data.id;
-    res.json({ transcript_id: predictionId });
+    return res.json({ transcript_id: response.data.id });
   } catch (err) {
-    console.error("Transcription failed", err);
-    res.status(500).json({ error: "Transcription failed" });
+    console.error("Transcription Start Error:", err.response?.data || err.message);
+    return res.status(500).json({ error: "Failed to start transcription" });
   }
 });
 
-// GET /transcription/:id -> Poll status
+// --- 3. Poll Endpoint ---
 app.get("/transcription/:id", async (req, res) => {
-  const id = req.params.id;
+  const { id } = req.params;
+
   try {
-    const response = await axios.get(`https://api.replicate.com/v1/predictions/${id}`, {
+    const pollRes = await axios.get(`https://api.replicate.com/v1/predictions/${id}`, {
       headers: {
-        Authorization: `Token ${process.env.REPLICATE_API_KEY}`
-      }
+        Authorization: `Token ${REPLICATE_API_TOKEN}`,
+      },
     });
 
-    const status = response.data.status;
+    const status = pollRes.data.status;
+
     if (status === "succeeded") {
-      const words = response.data.output.words.map(w => ({
-        start: Math.floor(w.start * 1000),
-        end: Math.floor(w.end * 1000),
-        text: w.text
+      const output = pollRes.data.output;
+      const segments = output.segments || [];
+
+      const words = segments.map((seg) => ({
+        start: Math.floor(seg.start * 1000),
+        end: Math.floor(seg.end * 1000),
+        text: seg.text.trim(),
       }));
+
       return res.json({ status: "completed", words });
     } else if (status === "failed") {
-      return res.json({ status: "error" });
+      console.error("Replicate failed:", pollRes.data.error);
+      return res.json({ status: "error", message: pollRes.data.error });
     } else {
-      return res.json({ status });
+      return res.json({ status }); // still processing
     }
-  } catch (e) {
-    console.error("Polling error", e);
-    return res.status(500).json({ error: "Polling failed" });
+  } catch (err) {
+    console.error("Polling Error:", err.message);
+    return res.status(500).json({ error: "Failed to fetch transcription status" });
   }
 });
 
-app.listen(port, () => {
-  console.log(`✅ Whisper subtitle server running on port ${port}`);
-});
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
