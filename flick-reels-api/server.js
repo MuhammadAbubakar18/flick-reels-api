@@ -101,4 +101,5 @@ app.get('/transcription/:id', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Whisper server running on port ${PORT}`);
+  console.log('🔧 Replicate version:', require('replicate/package.json').version);
 });
