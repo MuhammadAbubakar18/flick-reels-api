@@ -17,22 +17,41 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
 
+// Debug: Confirm actual version and available keys
+console.log(`🚀 Whisper server running on port ${PORT}`);
+console.log('🔧 Replicate version:', require('replicate/package.json').version);
+console.log('🔍 Available Replicate methods:', Object.keys(replicate));
+
 // ===== ✅ 1. Upload audio or video file and get public HTTPS URL =====
 app.post('/upload', upload.single('audio'), async (req, res) => {
   if (!req.file) {
+    console.error('❌ No file uploaded');
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
   try {
     const filePath = path.resolve(req.file.path);
+    console.log('📁 File path:', filePath);
+    console.log('📦 Original name:', req.file.originalname);
+    console.log('🧾 MIME type:', req.file.mimetype);
+
     const fileBuffer = await fs.readFile(filePath);
+    console.log('📄 File buffer read, size:', fileBuffer.length);
+
+    if (typeof replicate.upload !== 'function') {
+      throw new Error('replicate.upload() is not a function. Check your Replicate SDK version.');
+    }
 
     const uploadResponse = await replicate.upload(fileBuffer, {
-      contentType: req.file.mimetype, // ← Dynamic here
+      contentType: req.file.mimetype,
       filename: req.file.originalname,
     });
 
-    console.log(`✅ File uploaded to: ${uploadResponse.url}`);
+    if (!uploadResponse || !uploadResponse.url) {
+      throw new Error('No URL returned from replicate.upload()');
+    }
+
+    console.log('✅ File uploaded to:', uploadResponse.url);
     res.json({ upload_url: uploadResponse.url });
   } catch (error) {
     console.error('❌ Upload error:', error);
@@ -40,9 +59,8 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
   }
 });
 
-
 // ===== ✅ 2. Start transcription =====
-let transcriptionCache = {}; // Store transcripts in memory (for testing/demo)
+let transcriptionCache = {};
 
 app.post('/transcribe', async (req, res) => {
   try {
@@ -53,7 +71,7 @@ app.post('/transcribe', async (req, res) => {
     }
 
     const prediction = await replicate.predictions.create({
-      version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c", // Whisper
+      version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c",
       input: {
         audio: audio_url,
         transcription: "verbose_json",
@@ -99,7 +117,4 @@ app.get('/transcription/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Whisper server running on port ${PORT}`);
-  console.log('🔧 Replicate version:', require('replicate/package.json').version);
-});
+app.listen(PORT);
