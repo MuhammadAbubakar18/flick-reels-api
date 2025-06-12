@@ -1,3 +1,4 @@
+// server.mjs
 import express from 'express';
 import multer from 'multer';
 import cors from 'cors';
@@ -5,11 +6,20 @@ import fs from 'fs/promises';
 import path from 'path';
 import replicate from 'replicate';
 import dotenv from 'dotenv';
+import { v2 as cloudinary } from 'cloudinary'; // Import Cloudinary
+
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Configure Cloudinary (get these from your Cloudinary dashboard)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const upload = multer({ dest: 'uploads/' });
 const PORT = process.env.PORT || 10000;
@@ -17,7 +27,7 @@ const PORT = process.env.PORT || 10000;
 console.log(`🚀 Whisper server running on port ${PORT}`);
 console.log('🔍 Available Replicate methods:', Object.keys(replicate));
 
-// ===== ✅ 1. Upload and get public HTTPS URL
+// ===== ✅ 1. Upload to Cloudinary and get public HTTPS URL
 app.post('/upload', upload.single('audio'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
@@ -25,26 +35,29 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 
   try {
     const filePath = path.resolve(req.file.path);
-    const fileBuffer = await fs.readFile(filePath);
 
-    const uploadResponse = await replicate.upload(fileBuffer, {
-      contentType: req.file.mimetype,
-      filename: req.file.originalname,
+    // Upload audio file to Cloudinary
+    const result = await cloudinary.uploader.upload(filePath, {
+      resource_type: "video", // Treat as video to handle audio extraction by Cloudinary if needed, or 'raw' for just audio
+      folder: "replicate_audio_uploads", // Optional: organize your uploads
     });
 
-    if (!uploadResponse?.url) {
-      throw new Error('No URL returned from replicate.upload()');
+    // Clean up the local file after upload
+    await fs.unlink(filePath);
+
+    if (!result?.secure_url) {
+      throw new Error('No secure_url returned from Cloudinary upload');
     }
 
-    console.log('✅ Uploaded to:', uploadResponse.url);
-    res.json({ upload_url: uploadResponse.url });
+    console.log('✅ Uploaded to Cloudinary:', result.secure_url);
+    res.json({ upload_url: result.secure_url });
   } catch (error) {
     console.error('❌ Upload error:', error);
     res.status(500).json({ error: 'Upload failed', detail: error.message });
   }
 });
 
-// ===== ✅ 2. Start transcription
+// ===== ✅ 2. Start transcription (No changes needed here as it expects a URL)
 const transcriptionCache = {};
 
 app.post('/transcribe', async (req, res) => {
@@ -54,7 +67,12 @@ app.post('/transcribe', async (req, res) => {
       return res.status(400).json({ error: 'Missing audio_url' });
     }
 
-    const prediction = await replicate.predictions.create({
+    // Initialize Replicate API with your token
+    const replicateApi = new replicate({
+      auth: process.env.REPLICATE_API_TOKEN,
+    });
+
+    const prediction = await replicateApi.predictions.create({
       version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c",
       input: {
         audio: audio_url,
@@ -72,10 +90,15 @@ app.post('/transcribe', async (req, res) => {
   }
 });
 
-// ===== ✅ 3. Poll for results
+// ===== ✅ 3. Poll for results (No changes needed here)
 app.get('/transcription/:id', async (req, res) => {
   try {
-    const prediction = await replicate.predictions.get(req.params.id);
+    // Initialize Replicate API with your token
+    const replicateApi = new replicate({
+      auth: process.env.REPLICATE_API_TOKEN,
+    });
+
+    const prediction = await replicateApi.predictions.get(req.params.id);
     console.log(`🔄 Polled status: ${prediction.status}`);
 
     if (prediction.status === "succeeded") {
@@ -94,9 +117,11 @@ app.get('/transcription/:id', async (req, res) => {
 
     res.json({ status: prediction.status });
   } catch (err) {
-    console.error('❌ Polling error:', err);
-    res.status(500).json({ error: 'Polling failed', detail: err.message });
+      console.error('❌ Polling error:', err);
+      res.status(500).json({ error: 'Polling failed', detail: err.message });
   }
 });
 
-app.listen(PORT);
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});

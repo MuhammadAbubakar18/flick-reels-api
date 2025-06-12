@@ -1,5 +1,5 @@
 {
-  "name": "flick-reels-esm",
+  "name": "flick-reels-esm-fixed",
   "version": "1.0.0",
   "type": "module",
   "main": "server.mjs",
@@ -12,6 +12,7 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
-    "replicate": "^0.29.4"
+    "replicate": "^0.29.4",
+    "cloudinary": "^2.6.1"
   }
 }
