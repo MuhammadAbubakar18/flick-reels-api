@@ -3,7 +3,7 @@ const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs').promises;
 const path = require('path');
-const replicate = require('replicate'); // ✅ Correct: use top-level object
+const Replicate = require('replicate'); // ✅ CORRECT: Constructor import
 require('dotenv').config();
 
 const app = express();
@@ -13,12 +13,16 @@ app.use(express.json());
 const upload = multer({ dest: 'uploads/' });
 const PORT = process.env.PORT || 10000;
 
-// Debug logs
+// ✅ Instantiate Replicate client correctly
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN,
+});
+
 console.log(`🚀 Whisper server running on port ${PORT}`);
 console.log('🔧 Replicate version:', require('replicate/package.json').version);
 console.log('🔍 Available Replicate methods:', Object.keys(replicate));
 
-// ===== ✅ 1. Upload audio or video file and get public HTTPS URL =====
+// ===== ✅ 1. Upload file and return file:// path =====
 app.post('/upload', upload.single('audio'), async (req, res) => {
   if (!req.file) {
     console.error('❌ No file uploaded');
@@ -27,28 +31,10 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 
   try {
     const filePath = path.resolve(req.file.path);
-    console.log('📁 File path:', filePath);
-    console.log('📦 Original name:', req.file.originalname);
-    console.log('🧾 MIME type:', req.file.mimetype);
+    console.log('📁 File saved at:', filePath);
 
-    const fileBuffer = await fs.readFile(filePath);
-    console.log('📄 File buffer read, size:', fileBuffer.length);
-
-    if (typeof replicate.upload !== 'function') {
-      throw new Error('replicate.upload() is not a function. Check your Replicate SDK version.');
-    }
-
-    const uploadResponse = await replicate.upload(fileBuffer, {
-      contentType: req.file.mimetype,
-      filename: req.file.originalname,
-    });
-
-    if (!uploadResponse || !uploadResponse.url) {
-      throw new Error('No URL returned from replicate.upload()');
-    }
-
-    console.log('✅ File uploaded to:', uploadResponse.url);
-    res.json({ upload_url: uploadResponse.url });
+    // ✅ Instead of replicate.upload(), just return the file path
+    res.json({ upload_url: `file://${filePath}` });
   } catch (error) {
     console.error('❌ Upload error:', error);
     res.status(500).json({ error: 'Upload failed', detail: error.message });
@@ -66,7 +52,7 @@ app.post('/transcribe', async (req, res) => {
     }
 
     const prediction = await replicate.predictions.create({
-      version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c", // Whisper
+      version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c",
       input: {
         audio: audio_url,
         transcription: "verbose_json",
