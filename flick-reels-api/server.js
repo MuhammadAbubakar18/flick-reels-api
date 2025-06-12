@@ -3,7 +3,7 @@ const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs').promises;
 const path = require('path');
-const Replicate = require('replicate');
+const replicate = require('replicate'); // ✅ Correct: use top-level object
 require('dotenv').config();
 
 const app = express();
@@ -13,11 +13,7 @@ app.use(express.json());
 const upload = multer({ dest: 'uploads/' });
 const PORT = process.env.PORT || 10000;
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN,
-});
-
-// Debug: Confirm actual version and available keys
+// Debug logs
 console.log(`🚀 Whisper server running on port ${PORT}`);
 console.log('🔧 Replicate version:', require('replicate/package.json').version);
 console.log('🔍 Available Replicate methods:', Object.keys(replicate));
@@ -65,13 +61,12 @@ let transcriptionCache = {};
 app.post('/transcribe', async (req, res) => {
   try {
     const { audio_url } = req.body;
-
     if (!audio_url) {
       return res.status(400).json({ error: 'Missing audio_url' });
     }
 
     const prediction = await replicate.predictions.create({
-      version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c",
+      version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c", // Whisper
       input: {
         audio: audio_url,
         transcription: "verbose_json",
