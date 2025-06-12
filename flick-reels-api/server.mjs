@@ -3,7 +3,7 @@ import multer from 'multer';
 import cors from 'cors';
 import fs from 'fs/promises';
 import path from 'path';
-import Replicate from 'replicate';
+import replicate from 'replicate';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -14,12 +14,7 @@ app.use(express.json());
 const upload = multer({ dest: 'uploads/' });
 const PORT = process.env.PORT || 10000;
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN,
-});
-
 console.log(`🚀 Whisper server running on port ${PORT}`);
-console.log('🔧 Replicate version:', replicate.version);
 console.log('🔍 Available Replicate methods:', Object.keys(replicate));
 
 // ===== ✅ 1. Upload and get public HTTPS URL
