@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 const Replicate = require('replicate');
 require('dotenv').config();
@@ -17,22 +17,31 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
 
-// ===== ✅ 1. Upload audio or video file =====
+// ===== ✅ 1. Upload audio or video file and get public HTTPS URL =====
 app.post('/upload', upload.single('audio'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  const filePath = path.resolve(req.file.path);
+  try {
+    const filePath = path.resolve(req.file.path);
+    const fileBuffer = await fs.readFile(filePath);
 
-  // Replicate supports file:// protocol for local file paths
-  const uploadUrl = `file://${filePath}`;
+    const uploadResponse = await replicate.upload(fileBuffer, {
+      contentType: req.file.mimetype, // ← Dynamic here
+      filename: req.file.originalname,
+    });
 
-  console.log(`✅ File uploaded: ${uploadUrl}`);
-  res.json({ upload_url: uploadUrl });
+    console.log(`✅ File uploaded to: ${uploadResponse.url}`);
+    res.json({ upload_url: uploadResponse.url });
+  } catch (error) {
+    console.error('❌ Upload error:', error);
+    res.status(500).json({ error: 'Upload failed', detail: error.message });
+  }
 });
 
-// ===== ✅ 2. Transcription request =====
+
+// ===== ✅ 2. Start transcription =====
 let transcriptionCache = {}; // Store transcripts in memory (for testing/demo)
 
 app.post('/transcribe', async (req, res) => {
@@ -44,7 +53,7 @@ app.post('/transcribe', async (req, res) => {
     }
 
     const prediction = await replicate.predictions.create({
-      version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c", // Whisper version
+      version: "a2e3c15c03e3f18e68b9c9565d6b31283c13ad095a380ddcf80c60363a932f7c", // Whisper
       input: {
         audio: audio_url,
         transcription: "verbose_json",
