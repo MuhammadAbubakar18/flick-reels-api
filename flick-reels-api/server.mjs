@@ -111,12 +111,12 @@ app.get('/transcription/:id', async (req, res) => {
           // Each segment is expected to have its own 'words' array for word-level timestamps
           if (segment.words && Array.isArray(segment.words)) {
             const formattedSegmentWords = segment.words
-                // Ensure w.text is a string and has content before trimming
-                .filter(w => typeof w.text === 'string' && w.text.trim().length > 0)
+                // CORRECTED: Use w.word for filtering and mapping the actual word text
+                .filter(w => typeof w.word === 'string' && w.word.trim().length > 0)
                 .map(w => ({
                     start: Math.floor(parseFloat(w.start) * 1000), // Convert seconds to milliseconds
                     end: Math.floor(parseFloat(w.end) * 1000),     // Convert seconds to milliseconds
-                    text: w.text.trim()
+                    text: w.word.trim() // CORRECTED: Use w.word here
                 }));
             allWords = allWords.concat(formattedSegmentWords);
           }
