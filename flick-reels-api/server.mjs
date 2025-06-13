@@ -73,11 +73,12 @@ app.post('/transcribe', async (req, res) => {
     });
 
     const prediction = await replicateApi.predictions.create({
-      version: "be69de6b9dc57b3361dff4122ef4d6876ad4234bf5c879287b48d35c20ce3e83",
+      version: "fc8db75653afb753541995d315ac4ed632aab7c13abfb25c56a9e810a51ff93e", // Updated version ID
       input: {
         audio: audio_url,
-        transcription: "verbose_json",
+        word_timestamps: true, // New parameter for word-level timestamps
         language: "auto"
+        // transcription: "verbose_json", // This line can be removed or commented out
       },
     });
 
