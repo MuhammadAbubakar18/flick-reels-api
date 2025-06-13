@@ -77,7 +77,7 @@ app.post('/transcribe', async (req, res) => {
       input: {
         audio: audio_url,
         word_timestamps: true, // New parameter for word-level timestamps
-        language: "auto"
+        // language: "auto"
         // transcription: "verbose_json", // This line can be removed or commented out
       },
     });
