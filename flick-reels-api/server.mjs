@@ -30,7 +30,6 @@ const replicateApi = new replicate({
 
 console.log(`🚀 Whisper server running on port ${PORT}`);
 console.log('🔍 Available Replicate methods (on instance):', Object.keys(replicateApi));
-// Note: replicate.upload is a static method on the 'replicate' module itself, not the instance.
 
 // ===== ✅ 1. Upload to Cloudinary and get public HTTPS URL
 app.post('/upload', upload.single('audio'), async (req, res) => {
@@ -78,7 +77,6 @@ app.post('/transcribe', async (req, res) => {
       input: {
         audio: audio_url,
         word_timestamps: true, // Enable word-level timestamps
-        // language: "en" // Removed this parameter as it was causing issues and model can auto-detect
       },
     });
 
@@ -108,7 +106,7 @@ app.get('/transcription/:id', async (req, res) => {
             const formattedSegmentWords = segment.words.map(w => ({
               start: Math.floor(parseFloat(w.start) * 1000), // Convert seconds to milliseconds
               end: Math.floor(parseFloat(w.end) * 1000),     // Convert seconds to milliseconds
-              text: w.text.trim()
+              text: (w.text || '').trim() // FIX: Ensure w.text is a string before calling trim()
             }));
             allWords = allWords.concat(formattedSegmentWords);
           }
