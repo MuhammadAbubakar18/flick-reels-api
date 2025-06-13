@@ -46,8 +46,10 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
       folder: "replicate_audio_uploads", // Optional: organize your uploads
     });
 
-    // Clean up the local file after upload
-    await fs.unlink(filePath);
+    // Clean up the local file after upload - TEMPORARILY COMMENTED OUT FOR FRONTEND DEBUGGING
+    // This line was causing the 'FileNotFoundException' in Flutter
+    // You might need a different strategy for server cleanup in a production environment
+    // await fs.unlink(filePath); // <---- THIS LINE IS COMMENTED OUT
 
     if (!result?.secure_url) {
       throw new Error('No secure_url returned from Cloudinary upload');
@@ -77,6 +79,8 @@ app.post('/transcribe', async (req, res) => {
       input: {
         audio: audio_url,
         word_timestamps: true, // Enable word-level timestamps
+        // Add language explicitly if audio is consistently English to help model
+        // language: "en", // UNCOMMENT THIS IF YOU WANT TO FORCE ENGLISH
       },
     });
 
@@ -97,7 +101,9 @@ app.get('/transcription/:id', async (req, res) => {
     console.log(`🔄 Polled status: ${prediction.status}`);
 
     if (prediction.status === "succeeded") {
+      // Keep this log for now to confirm the output is as expected
       console.log('Replicate Prediction Output:', JSON.stringify(prediction.output, null, 2));
+
       let allWords = [];
       // Check if the output has segments and if it's an array
       if (prediction.output && Array.isArray(prediction.output.segments)) {
@@ -105,7 +111,8 @@ app.get('/transcription/:id', async (req, res) => {
           // Each segment is expected to have its own 'words' array for word-level timestamps
           if (segment.words && Array.isArray(segment.words)) {
             const formattedSegmentWords = segment.words
-                .filter(w => w.text && w.text.trim().length > 0) // ADDED: Filter out words with empty or whitespace-only text
+                // Ensure w.text is a string and has content before trimming
+                .filter(w => typeof w.text === 'string' && w.text.trim().length > 0)
                 .map(w => ({
                     start: Math.floor(parseFloat(w.start) * 1000), // Convert seconds to milliseconds
                     end: Math.floor(parseFloat(w.end) * 1000),     // Convert seconds to milliseconds
@@ -115,6 +122,8 @@ app.get('/transcription/:id', async (req, res) => {
           }
         });
       }
+      // Add this log to confirm the count of words being sent to the frontend
+      console.log('Generated Subtitle Words Count:', allWords.length);
 
       // Send the combined list of all words to the frontend
       return res.json({ status: "completed", words: allWords });
