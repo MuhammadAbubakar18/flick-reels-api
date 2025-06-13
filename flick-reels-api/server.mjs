@@ -94,22 +94,28 @@ app.post('/transcribe', async (req, res) => {
 // ===== ✅ 3. Poll for results (No changes needed here)
 app.get('/transcription/:id', async (req, res) => {
   try {
-    // Initialize Replicate API with your token
-    const replicateApi = new replicate({
-      auth: process.env.REPLICATE_API_TOKEN,
-    });
-
-    const prediction = await replicateApi.predictions.get(req.params.id);
+    const prediction = await replicate.predictions.get(req.params.id);
     console.log(`🔄 Polled status: ${prediction.status}`);
 
     if (prediction.status === "succeeded") {
-      const words = prediction.output.words || [];
-      const formattedWords = words.map(w => ({
-        start: Math.floor(parseFloat(w.start) * 1000),
-        end: Math.floor(parseFloat(w.end) * 1000),
-        text: w.text.trim()
-      }));
-      return res.json({ status: "completed", words: formattedWords });
+      let allWords = [];
+      // Check if the output has segments and if it's an array
+      if (prediction.output && Array.isArray(prediction.output.segments)) {
+        prediction.output.segments.forEach(segment => {
+          // Each segment might have its own 'words' array
+          if (segment.words && Array.isArray(segment.words)) {
+            const formattedSegmentWords = segment.words.map(w => ({
+              start: Math.floor(parseFloat(w.start) * 1000), // Convert seconds to milliseconds
+              end: Math.floor(parseFloat(w.end) * 1000),     // Convert seconds to milliseconds
+              text: w.text.trim()
+            }));
+            allWords = allWords.concat(formattedSegmentWords);
+          }
+        });
+      }
+
+      // Send the combined list of all words to the frontend
+      return res.json({ status: "completed", words: allWords });
     }
 
     if (prediction.status === "failed") {
@@ -118,8 +124,8 @@ app.get('/transcription/:id', async (req, res) => {
 
     res.json({ status: prediction.status });
   } catch (err) {
-      console.error('❌ Polling error:', err);
-      res.status(500).json({ error: 'Polling failed', detail: err.message });
+    console.error('❌ Polling error:', err);
+    res.status(500).json({ error: 'Polling failed', detail: err.message });
   }
 });
 
