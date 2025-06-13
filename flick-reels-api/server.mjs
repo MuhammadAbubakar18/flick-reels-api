@@ -1,4 +1,3 @@
-// server.mjs
 import express from 'express';
 import multer from 'multer';
 import cors from 'cors';
@@ -24,8 +23,14 @@ cloudinary.config({
 const upload = multer({ dest: 'uploads/' });
 const PORT = process.env.PORT || 10000;
 
+// Initialize the Replicate API client instance for predictions (requires auth)
+const replicateApi = new replicate({
+    auth: process.env.REPLICATE_API_TOKEN,
+});
+
 console.log(`🚀 Whisper server running on port ${PORT}`);
-console.log('🔍 Available Replicate methods:', Object.keys(replicate));
+console.log('🔍 Available Replicate methods (on instance):', Object.keys(replicateApi));
+// Note: replicate.upload is a static method on the 'replicate' module itself, not the instance.
 
 // ===== ✅ 1. Upload to Cloudinary and get public HTTPS URL
 app.post('/upload', upload.single('audio'), async (req, res) => {
@@ -57,28 +62,23 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
   }
 });
 
-// ===== ✅ 2. Start transcription (No changes needed here as it expects a URL)
-const transcriptionCache = {};
+// ===== ✅ 2. Start transcription
+const transcriptionCache = {}; // Simple in-memory cache for predictions
 
 app.post('/transcribe', async (req, res) => {
   try {
-    const { audio_url } = req.body;
+    const audio_url = req.body.audio_url;
     if (!audio_url) {
       return res.status(400).json({ error: 'Missing audio_url' });
     }
 
-    // Initialize Replicate API with your token
-    const replicateApi = new replicate({
-      auth: process.env.REPLICATE_API_TOKEN,
-    });
-
+    // Use the initialized replicateApi instance for predictions.create
     const prediction = await replicateApi.predictions.create({
-      version: "fc8db75653afb753541995d315ac4ed632aab7c13abfb25c56a9e810a51ff93e", // Updated version ID
+      version: "fc8db75653afb753541995d315ac4ed632aab7c13abfb25c56a9e810a51ff93e", // Corrected model version for word timestamps
       input: {
         audio: audio_url,
-        word_timestamps: true, // New parameter for word-level timestamps
-        // language: "auto"
-        // transcription: "verbose_json", // This line can be removed or commented out
+        word_timestamps: true, // Enable word-level timestamps
+        // language: "en" // Removed this parameter as it was causing issues and model can auto-detect
       },
     });
 
@@ -87,29 +87,36 @@ app.post('/transcribe', async (req, res) => {
     res.json({ transcript_id: prediction.id });
   } catch (err) {
     console.error('❌ Transcription error:', err);
-    res.status(500).json({ error: 'Transcription failed', detail: err.message });
+    res.status(500).json({ error: 'Transcription start failed', detail: err.message });
   }
 });
 
-// ===== ✅ 3. Poll for results (No changes needed here)
+// ===== ✅ 3. Poll for results
 app.get('/transcription/:id', async (req, res) => {
   try {
-    // Initialize Replicate API with your token
-    const replicateApi = new replicate({
-      auth: process.env.REPLICATE_API_TOKEN,
-    });
-
+    // Use the initialized replicateApi instance for predictions.get
     const prediction = await replicateApi.predictions.get(req.params.id);
     console.log(`🔄 Polled status: ${prediction.status}`);
 
     if (prediction.status === "succeeded") {
-      const words = prediction.output.words || [];
-      const formattedWords = words.map(w => ({
-        start: Math.floor(parseFloat(w.start) * 1000),
-        end: Math.floor(parseFloat(w.end) * 1000),
-        text: w.text.trim()
-      }));
-      return res.json({ status: "completed", words: formattedWords });
+      let allWords = [];
+      // Check if the output has segments and if it's an array
+      if (prediction.output && Array.isArray(prediction.output.segments)) {
+        prediction.output.segments.forEach(segment => {
+          // Each segment is expected to have its own 'words' array for word-level timestamps
+          if (segment.words && Array.isArray(segment.words)) {
+            const formattedSegmentWords = segment.words.map(w => ({
+              start: Math.floor(parseFloat(w.start) * 1000), // Convert seconds to milliseconds
+              end: Math.floor(parseFloat(w.end) * 1000),     // Convert seconds to milliseconds
+              text: w.text.trim()
+            }));
+            allWords = allWords.concat(formattedSegmentWords);
+          }
+        });
+      }
+
+      // Send the combined list of all words to the frontend
+      return res.json({ status: "completed", words: allWords });
     }
 
     if (prediction.status === "failed") {
@@ -118,11 +125,11 @@ app.get('/transcription/:id', async (req, res) => {
 
     res.json({ status: prediction.status });
   } catch (err) {
-      console.error('❌ Polling error:', err);
-      res.status(500).json({ error: 'Polling failed', detail: err.message });
+    console.error('❌ Polling error:', err);
+    res.status(500).json({ error: 'Polling failed', detail: err.message });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
