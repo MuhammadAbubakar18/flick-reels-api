@@ -97,6 +97,7 @@ app.get('/transcription/:id', async (req, res) => {
     console.log(`🔄 Polled status: ${prediction.status}`);
 
     if (prediction.status === "succeeded") {
+      console.log('Replicate Prediction Output:', JSON.stringify(prediction.output, null, 2));
       let allWords = [];
       // Check if the output has segments and if it's an array
       if (prediction.output && Array.isArray(prediction.output.segments)) {
